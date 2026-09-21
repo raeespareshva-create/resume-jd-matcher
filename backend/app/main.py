@@ -21,7 +21,7 @@ if DATABASE_URL.startswith("postgresql://"):
 elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 print(f"[startup] DATABASE_URL scheme: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}", flush=True)
-engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 5}, pool_pre_ping=True)
+engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 5, "sslmode": "require"}, pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
 class Base(DeclarativeBase): pass
 class Analysis(Base):
