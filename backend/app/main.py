@@ -21,7 +21,7 @@ if DATABASE_URL.startswith("postgresql://"):
 elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 print(f"[startup] DATABASE_URL scheme: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}", flush=True)
-engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 20, "sslmode": "require"}, pool_pre_ping=True)
+engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 20}, pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
 class Base(DeclarativeBase): pass
 class Analysis(Base):
@@ -58,6 +58,16 @@ def health():
         after_at = DATABASE_URL.split("@", 1)[1] if "@" in DATABASE_URL else DATABASE_URL
         result["database_host_shown"] = after_at
         result["database_url_has_query_params"] = "?" in DATABASE_URL
+        # Raw TCP test, bypassing Postgres's own protocol entirely, to isolate whether
+        # this is a pure network/firewall issue or something Postgres-specific.
+        try:
+            import socket
+            host_port = after_at.split("/")[0]
+            host, port_str = host_port.rsplit(":", 1) if ":" in host_port else (host_port, "5432")
+            with socket.create_connection((host, int(port_str)), timeout=10):
+                result["raw_tcp_connection"] = "OK"
+        except Exception as tcp_e:
+            result["raw_tcp_connection"] = f"FAILED: {type(tcp_e).__name__}: {tcp_e}"
     except Exception:
         result["database_host_shown"] = "could not parse"
     try:
