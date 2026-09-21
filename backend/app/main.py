@@ -13,6 +13,13 @@ from docx import Document
 from pypdf import PdfReader
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://resume_matcher:resume_matcher@localhost:5432/resume_matcher")
+# Railway (and some other hosts) provide DATABASE_URL as plain "postgresql://" or
+# "postgres://", which SQLAlchemy needs the "psycopg" driver name added to. Fix it
+# automatically here so this keeps working even if the platform resets the variable.
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+elif DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 engine = create_engine(DATABASE_URL); Session = sessionmaker(bind=engine)
 class Base(DeclarativeBase): pass
 class Analysis(Base):
