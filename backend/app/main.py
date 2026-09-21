@@ -37,6 +37,23 @@ Base.metadata.create_all(engine)
 app = FastAPI(title="Resume JD Matcher")
 app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","), allow_methods=["*"], allow_headers=["*"])
 
+@app.get("/health")
+def health():
+    """Visit this in a browser to see exactly what's working/broken, no console needed."""
+    result = {"app": "ok"}
+    db_url_set = bool(os.getenv("DATABASE_URL", "").strip())
+    result["database_url_env_var_set"] = db_url_set
+    result["resolved_database_url_scheme"] = DATABASE_URL.split("://")[0] + "://" if "://" in DATABASE_URL else "unknown"
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("SELECT 1")
+        result["database_connection"] = "OK"
+    except Exception as e:
+        result["database_connection"] = "FAILED"
+        result["database_error"] = f"{type(e).__name__}: {str(e)[:300]}"
+    result["groq_api_key_set"] = bool(os.getenv("GROQ_API_KEY", "").strip())
+    return result
+
 def extract(upload: UploadFile, data: bytes) -> str:
     name = (upload.filename or "").lower()
     try:
