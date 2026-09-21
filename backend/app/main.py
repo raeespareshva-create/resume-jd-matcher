@@ -53,6 +53,12 @@ def health():
     db_url_set = bool(os.getenv("DATABASE_URL", "").strip())
     result["database_url_env_var_set"] = db_url_set
     result["resolved_database_url_scheme"] = DATABASE_URL.split("://")[0] + "://" if "://" in DATABASE_URL else "unknown"
+    # Show host:port/dbname only (never the password) so we can verify which DB it's targeting.
+    try:
+        after_at = DATABASE_URL.split("@", 1)[1] if "@" in DATABASE_URL else DATABASE_URL
+        result["database_host_shown"] = after_at
+    except Exception:
+        result["database_host_shown"] = "could not parse"
     try:
         with engine.connect() as conn:
             conn.exec_driver_sql("SELECT 1")
