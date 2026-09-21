@@ -21,7 +21,7 @@ if DATABASE_URL.startswith("postgresql://"):
 elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 print(f"[startup] DATABASE_URL scheme: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}", flush=True)
-engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 5, "sslmode": "require"}, pool_pre_ping=True)
+engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 20, "sslmode": "require"}, pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
 class Base(DeclarativeBase): pass
 class Analysis(Base):
@@ -57,6 +57,7 @@ def health():
     try:
         after_at = DATABASE_URL.split("@", 1)[1] if "@" in DATABASE_URL else DATABASE_URL
         result["database_host_shown"] = after_at
+        result["database_url_has_query_params"] = "?" in DATABASE_URL
     except Exception:
         result["database_host_shown"] = "could not parse"
     try:
