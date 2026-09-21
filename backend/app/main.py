@@ -20,7 +20,9 @@ if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
-engine = create_engine(DATABASE_URL); Session = sessionmaker(bind=engine)
+print(f"[startup] DATABASE_URL scheme: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}", flush=True)
+engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 5}, pool_pre_ping=True)
+Session = sessionmaker(bind=engine)
 class Base(DeclarativeBase): pass
 class Analysis(Base):
     __tablename__ = "analyses"
@@ -32,7 +34,14 @@ class Analysis(Base):
     jd_text: Mapped[str] = mapped_column(Text)
     mandatory_weight: Mapped[float] = mapped_column(Float, default=.7)
     result: Mapped[dict] = mapped_column(JSONB)
-Base.metadata.create_all(engine)
+print("[startup] Connecting to database and ensuring tables exist...", flush=True)
+try:
+    Base.metadata.create_all(engine)
+    print("[startup] Database ready.", flush=True)
+except Exception as e:
+    # Don't let a bad/unreachable DB prevent the web server from starting at all —
+    # start anyway so /health can report the real error instead of hanging forever.
+    print(f"[startup] WARNING: could not initialize database tables: {type(e).__name__}: {e}", flush=True)
 
 app = FastAPI(title="Resume JD Matcher")
 app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","), allow_methods=["*"], allow_headers=["*"])
