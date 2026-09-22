@@ -10,13 +10,28 @@ from sqlalchemy import DateTime, Float, JSON, String, Text, create_engine, selec
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from docx import Document
 from pypdf import PdfReader
+from urllib.parse import urlparse, urlunparse
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/data/resume_matcher.db")
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
-elif DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
-print(f"[startup] DATABASE_URL scheme: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}", flush=True)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set! Please add it to Railway Variables.")
+
+DATABASE_URL = DATABASE_URL.strip()
+
+parsed = urlparse(DATABASE_URL)
+scheme = parsed.scheme
+
+if scheme in ("postgresql", "postgres"):
+    new_scheme = "postgresql+psycopg"
+elif scheme == "mysql":
+    new_scheme = "mysql+pymysql"
+else:
+    new_scheme = scheme
+
+DATABASE_URL = urlunparse(parsed._replace(scheme=new_scheme))
+
+print(f"[startup] DATABASE_URL scheme: {DATABASE_URL.split('://')[0]}", flush=True)
+
 if DATABASE_URL.startswith("sqlite"):
     os.makedirs(os.path.dirname(DATABASE_URL.split("///")[-1]) or ".", exist_ok=True)
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -50,7 +65,12 @@ app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "http
 def health():
     """Visit this in a browser to see exactly what's working/broken, no console needed."""
     result = {"app": "ok"}
-    result["database_type"] = "sqlite" if DATABASE_URL.startswith("sqlite") else "postgres"
+       if "mysql" in DATABASE_URL:
+        result["database_type"] = "mysql"
+    elif DATABASE_URL.startswith("sqlite"):
+        result["database_type"] = "sqlite"
+    else:
+        result["database_type"] = "postgres"
     try:
         with engine.connect() as conn:
             conn.exec_driver_sql("SELECT 1")
