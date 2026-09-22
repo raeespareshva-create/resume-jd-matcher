@@ -6,34 +6,34 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import DateTime, Float, String, Text, create_engine, select
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy import DateTime, Float, JSON, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from docx import Document
 from pypdf import PdfReader
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://resume_matcher:resume_matcher@localhost:5432/resume_matcher")
-# Railway (and some other hosts) provide DATABASE_URL as plain "postgresql://" or
-# "postgres://", which SQLAlchemy needs the "psycopg" driver name added to. Fix it
-# automatically here so this keeps working even if the platform resets the variable.
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/data/resume_matcher.db")
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 print(f"[startup] DATABASE_URL scheme: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}", flush=True)
-engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 20}, pool_pre_ping=True)
+if DATABASE_URL.startswith("sqlite"):
+    os.makedirs(os.path.dirname(DATABASE_URL.split("///")[-1]) or ".", exist_ok=True)
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 20}, pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
 class Base(DeclarativeBase): pass
 class Analysis(Base):
     __tablename__ = "analyses"
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     candidate_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     resume_filename: Mapped[str] = mapped_column(String(255))
     resume_text: Mapped[str] = mapped_column(Text)
     jd_text: Mapped[str] = mapped_column(Text)
     mandatory_weight: Mapped[float] = mapped_column(Float, default=.7)
-    result: Mapped[dict] = mapped_column(JSONB)
+    result: Mapped[dict] = mapped_column(JSON)
 print("[startup] Connecting to database and ensuring tables exist...", flush=True)
 try:
     Base.metadata.create_all(engine)
@@ -50,26 +50,7 @@ app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "http
 def health():
     """Visit this in a browser to see exactly what's working/broken, no console needed."""
     result = {"app": "ok"}
-    db_url_set = bool(os.getenv("DATABASE_URL", "").strip())
-    result["database_url_env_var_set"] = db_url_set
-    result["resolved_database_url_scheme"] = DATABASE_URL.split("://")[0] + "://" if "://" in DATABASE_URL else "unknown"
-    # Show host:port/dbname only (never the password) so we can verify which DB it's targeting.
-    try:
-        after_at = DATABASE_URL.split("@", 1)[1] if "@" in DATABASE_URL else DATABASE_URL
-        result["database_host_shown"] = after_at
-        result["database_url_has_query_params"] = "?" in DATABASE_URL
-        # Raw TCP test, bypassing Postgres's own protocol entirely, to isolate whether
-        # this is a pure network/firewall issue or something Postgres-specific.
-        try:
-            import socket
-            host_port = after_at.split("/")[0]
-            host, port_str = host_port.rsplit(":", 1) if ":" in host_port else (host_port, "5432")
-            with socket.create_connection((host, int(port_str)), timeout=10):
-                result["raw_tcp_connection"] = "OK"
-        except Exception as tcp_e:
-            result["raw_tcp_connection"] = f"FAILED: {type(tcp_e).__name__}: {tcp_e}"
-    except Exception:
-        result["database_host_shown"] = "could not parse"
+    result["database_type"] = "sqlite" if DATABASE_URL.startswith("sqlite") else "postgres"
     try:
         with engine.connect() as conn:
             conn.exec_driver_sql("SELECT 1")
@@ -268,7 +249,7 @@ async def create_analysis(resume: UploadFile=File(...), jd_text: str=Form(""), j
 def history():
     with Session() as s: return [serialize(x) for x in s.scalars(select(Analysis).order_by(Analysis.created_at.desc()).limit(30))]
 @app.get("/api/analyses/{analysis_id}")
-def get_analysis(analysis_id: UUID):
+def get_analysis(analysis_id: str):
     with Session() as s:
         row=s.get(Analysis,analysis_id)
         if not row: raise HTTPException(404,"Analysis not found")
@@ -284,7 +265,7 @@ class AskRequest(BaseModel):
     history: list[ChatTurn] = []
 
 @app.post("/api/analyses/{analysis_id}/ask")
-def ask_about_analysis(analysis_id: UUID, body: AskRequest):
+def ask_about_analysis(analysis_id: str, body: AskRequest):
     with Session() as s:
         row = s.get(Analysis, analysis_id)
         if not row: raise HTTPException(404, "Analysis not found")
