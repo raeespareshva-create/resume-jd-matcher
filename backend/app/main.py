@@ -65,7 +65,7 @@ app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "http
 def health():
     """Visit this in a browser to see exactly what's working/broken, no console needed."""
     result = {"app": "ok"}
-       if "mysql" in DATABASE_URL:
+    if "mysql" in DATABASE_URL:
         result["database_type"] = "mysql"
     elif DATABASE_URL.startswith("sqlite"):
         result["database_type"] = "sqlite"
@@ -80,6 +80,7 @@ def health():
         result["database_error"] = f"{type(e).__name__}: {str(e)[:300]}"
     result["groq_api_key_set"] = bool(os.getenv("GROQ_API_KEY", "").strip())
     return result
+
 
 def extract(upload: UploadFile, data: bytes) -> str:
     name = (upload.filename or "").lower()
